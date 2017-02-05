@@ -145,7 +145,7 @@ git push origin --delete 999-name-of-your-branch-goes-here
 
 To detect regressions early every merge to the Yii codebase on github will be picked up by
 [Travis CI](http://travis-ci.org) for an automated testrun. As core team doesn't wish to overtax this service,
-[`[ci skip]`](http://about.travis-ci.org/docs/user/how-to-skip-a-build/) will be included to the merge description if
+[`[ci skip]`](http://about.travis-ci.org/docs/user/how-to-skip-a-build/) should be included to the merge description if
 the pull request:
 
 * affect javascript, css or image files only,
