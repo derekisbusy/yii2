@@ -40,6 +40,9 @@ use yii\web\View;
  * Pjax::end();
  * ```
  *
+ * If using Pjax inside of the layout file you should set the `clear` attribute to `true`. This will prevent resources declared in the
+ * content views from being cleared.
+ * 
  * @author Qiang Xue <qiang.xue@gmail.com>
  * @since 2.0
  */
@@ -73,7 +76,7 @@ class Pjax extends Widget
      * @var string The jQuery event that will trigger form handler. Defaults to "submit".
      * @since 2.0.9
      */
-    public $submitEvent = 'submit';
+    public $submitEvent = 'submit.pjax';
     /**
      * @var bool whether to enable push state.
      */
@@ -99,10 +102,16 @@ class Pjax extends Widget
      */
     public $clientOptions;
     /**
-     * @var bool clear the resources. If set to `true` any resources registered outside the pjax widget's scope will be removed.
-     * This should be set to `false` if your pjax widget is inside the layout view since the layout is rendered after the content.
+     * @var bool clear the resources. Defaults to `true`. If set to `true` any resources registered outside the pjax widget's scope will be removed.
+     * Should be left to `true` in most cases. However, due to a caveat with using pjax widgets in the layout view this setting should be 
+     * set to `false` if your pjax widget is inside the layout view.
      */
     public $clear = true;
+    /**
+     *
+     * @var string|array the other widget scripts that should be included before this widget if they other widgets are present.
+     */
+    public $jsAfter = 'activeform';
     /**
      * @inheritdoc
      * @internal
@@ -201,20 +210,21 @@ class Pjax extends Widget
             $this->clientOptions['container'] = "#$id";
         }
         $options = Json::htmlEncode($this->clientOptions);
-        $js = '';
+        $js = "";
         if ($this->linkSelector !== false) {
             $linkSelector = Json::htmlEncode($this->linkSelector !== null ? $this->linkSelector : '#' . $id . ' a');
-            $js .= "jQuery(document).pjax($linkSelector, $options);";
+            $js .= "\njQuery(document).pjax($linkSelector, $options)";
         }
         if ($this->formSelector !== false) {
             $formSelector = Json::htmlEncode($this->formSelector !== null ? $this->formSelector : '#' . $id . ' form[data-pjax]');
             $submitEvent = Json::htmlEncode($this->submitEvent);
-            $js .= "\njQuery(document).on($submitEvent, $formSelector, function (event) {jQuery.pjax.submit(event, $options);});";
+            $js .= "\njQuery($formSelector).off($submitEvent)\n"
+                . "\t.on($submitEvent, function (event) {jQuery.pjax.submit(event, $options);})\n";
         }
 
         if ($js !== '') {
             $view = $this->getView();
-            $view->registerJs($js, View::POS_READY, 'pjax-init', View::MERGE_PREPEND);
+            $view->registerJs($js, View::POS_READY, 'pjax', View::MERGE_PREPEND, $this->jsAfter);
         }
     }
 }
