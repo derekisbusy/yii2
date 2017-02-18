@@ -111,7 +111,7 @@ class Pjax extends Widget
      *
      * @var string|array the other widget scripts that should be included before this widget if they other widgets are present.
      */
-    public $jsAfter = 'activeform';
+    public $initAfter = 'activeform';
     /**
      * @inheritdoc
      * @internal
@@ -224,7 +224,7 @@ class Pjax extends Widget
 
         if ($js !== '') {
             $view = $this->getView();
-            $view->registerJs($js, View::POS_READY, 'pjax', View::MERGE_PREPEND, $this->jsAfter);
+            $view->registerJs($js, View::POS_READY, 'pjax', View::MERGE_PREPEND, $this->initAfter);
         }
     }
 }
