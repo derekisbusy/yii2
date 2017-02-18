@@ -90,6 +90,11 @@ class View extends \yii\base\View
     const PH_BODY_END = '<![CDATA[YII-BLOCK-BODY-END]]>';
     /**
      * How the registered JavaScript code block should be included in the JavaScript section.
+     * This means the JavaScript code block will be skipped if the code block exists.
+     */
+    const MERGE_SKIP = 0;
+    /**
+     * How the registered JavaScript code block should be included in the JavaScript section.
      * This means the JavaScript code block will replace the current code block if the code block exists.
      */
     const MERGE_REPLACE = 1;
@@ -146,6 +151,8 @@ class View extends \yii\base\View
     public $jsFiles;
 
     private $_assetManager;
+    private $_jsHandled;
+    private $_jsAfter;
 
 
     /**
@@ -434,7 +441,7 @@ class View extends \yii\base\View
 
     /**
      * Registers a JS code block.
-     * @param string $js the JS code block to be registered
+     * @param string|callable|\Closure $js the JS code block to be registered or a callable method that returns a JS string.
      * @param int $position the position at which the JS script tag should be inserted
      * in a page. The possible values are:
      *
@@ -454,12 +461,23 @@ class View extends \yii\base\View
      * - [[MERGE_REPLACE]]: the existing code block will be replaced (default)
      * - [[MERGE_PREPEND]]: the JS code will be prepended to the existing JS code block.
      * - [[MERGE_APPEND]]: the JS code will be appended to the existing JS code block.
+     * - [[MERGE_SKIP]]: keep the current value of the JS code block.
      *
+     * @param string|array $afterKeys key or array of keys that should be rendered before the current script if they exist. 
      */
-    public function registerJs($js, $position = self::POS_READY, $key = null, $merger = self::MERGE_REPLACE)
+    public function registerJs($js, $position = self::POS_READY, $key = null, $merger = self::MERGE_REPLACE, $afterKeys = null)
     {
         $key = $key ?: md5($js);
+        if ($position === self::POS_READY || $position === self::POS_LOAD) {
+            JqueryAsset::register($this);
+        }
+        if ($afterKeys) {
+            $this->addAfter($afterKeys, $key);
+        }
         if (isset($this->js[$position][$key]) && $merger !== self::MERGE_REPLACE) {
+            if ($merger === self::MERGE_SKIP) {
+                return;
+            }
             if ($merger === self::MERGE_PREPEND) {
                 $this->js[$position][$key] = $js ."\n". $this->js[$position][$key];
             } else if ($merger === self::MERGE_APPEND) {
@@ -467,9 +485,6 @@ class View extends \yii\base\View
             }
         } else {
             $this->js[$position][$key] = $js;
-        }
-        if ($position === self::POS_READY || $position === self::POS_LOAD) {
-            JqueryAsset::register($this);
         }
     }
 
@@ -539,7 +554,7 @@ class View extends \yii\base\View
             $lines[] = implode("\n", $this->jsFiles[self::POS_HEAD]);
         }
         if (!empty($this->js[self::POS_HEAD])) {
-            $lines[] = Html::script(implode("\n", $this->js[self::POS_HEAD]), ['type' => 'text/javascript']);
+            $lines[] = Html::script($this->jsLines(self::POS_HEAD), ['type' => 'text/javascript']);
         }
 
         return empty($lines) ? '' : implode("\n", $lines);
@@ -557,7 +572,7 @@ class View extends \yii\base\View
             $lines[] = implode("\n", $this->jsFiles[self::POS_BEGIN]);
         }
         if (!empty($this->js[self::POS_BEGIN])) {
-            $lines[] = Html::script(implode("\n", $this->js[self::POS_BEGIN]), ['type' => 'text/javascript']);
+            $lines[] = Html::script($this->jsLines(self::POS_BEGIN), ['type' => 'text/javascript']);
         }
 
         return empty($lines) ? '' : implode("\n", $lines);
@@ -582,31 +597,75 @@ class View extends \yii\base\View
         if ($ajaxMode) {
             $scripts = [];
             if (!empty($this->js[self::POS_END])) {
-                $scripts[] = implode("\n", $this->js[self::POS_END]);
+                $scripts[] = $this->jsLines(self::POS_END);
             }
             if (!empty($this->js[self::POS_READY])) {
-                $scripts[] = implode("\n", $this->js[self::POS_READY]);
+                $scripts[] = $this->jsLines(self::POS_READY);
             }
             if (!empty($this->js[self::POS_LOAD])) {
-                $scripts[] = implode("\n", $this->js[self::POS_LOAD]);
+                $scripts[] = $this->jsLines(self::POS_LOAD);
             }
             if (!empty($scripts)) {
                 $lines[] = Html::script(implode("\n", $scripts), ['type' => 'text/javascript']);
             }
         } else {
             if (!empty($this->js[self::POS_END])) {
-                $lines[] = Html::script(implode("\n", $this->js[self::POS_END]), ['type' => 'text/javascript']);
+                $lines[] = Html::script($this->jsLines(self::POS_END), ['type' => 'text/javascript']);
             }
             if (!empty($this->js[self::POS_READY])) {
-                $js = "jQuery(document).ready(function () {\n" . implode("\n", $this->js[self::POS_READY]) . "\n});";
+                $js = "jQuery(document).ready(function () {\n" . $this->jsLines(self::POS_READY) . "\n});";
                 $lines[] = Html::script($js, ['type' => 'text/javascript']);
             }
             if (!empty($this->js[self::POS_LOAD])) {
-                $js = "jQuery(window).on('load', function () {\n" . implode("\n", $this->js[self::POS_LOAD]) . "\n});";
+                $js = "jQuery(window).on('load', function () {\n" . $this->jsLines(self::POS_LOAD) . "\n});";
                 $lines[] = Html::script($js, ['type' => 'text/javascript']);
             }
         }
 
         return empty($lines) ? '' : implode("\n", $lines);
+    }
+    
+    public function addAfter($afterKeys, $sciptKey)
+    {
+        if (is_array($afterKeys)) {
+            foreach($afterKeys as $afterKey) {
+                $this->_jsAfter[$sciptKey][$afterKey] = true;
+            }
+        } else {
+            $this->_jsAfter[$sciptKey][$afterKeys] = true;
+        }
+    }
+    
+    
+    public function jsLines($pos)
+    {
+        $array = $this->js[$pos];
+        $lines = '';
+        $this->_jsHandled = [];
+        while (count($this->_jsHandled) < count($array)) {
+            foreach ($array as $scriptKey => $script) {
+                if (array_key_exists($scriptKey, $this->_jsHandled) || $this->isLineDeferred($scriptKey, $array)) {
+                    continue;
+                }
+                $lines .= $script."\n";
+                $this->_jsHandled[$scriptKey] = true;
+            }
+        }
+        return $lines;
+    }
+    
+    public function isLineDeferred(&$scriptKey, &$array)
+    {
+        if (empty($this->_jsAfter[$scriptKey])) {
+            return false;
+        }
+        foreach ($this->_jsAfter[$scriptKey] as $beforeKey => $null) {
+            if (array_key_exists($beforeKey, $this->_jsAfter) && array_key_exists($scriptKey, $this->_jsAfter[$beforeKey])) {
+                throw new \Exception("Circular dependency detected with keys: $beforeKey <-> $scriptKey");
+            } else if (array_key_exists($beforeKey, $array) && !array_key_exists($beforeKey, $this->_jsHandled)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
